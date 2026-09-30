@@ -1,0 +1,247 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 47% 13%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 47% 12%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 226 85% 57%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 195 80% 44%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 20%;
+    --input: 217 33% 18%;
+    --ring: 226 85% 57%;
+
+    --radius: 0.75rem;
+
+    /* Winter Arc Status Colors */
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --danger: 0 72% 51%;
+    --neutral: 215 20% 65%;
+
+    /* Heatmap colors */
+    --heatmap-empty: 222 47% 16%;
+    --heatmap-low: 226 85% 30%;
+    --heatmap-medium: 226 85% 45%;
+    --heatmap-high: 226 85% 62%;
+    --heatmap-full: 142 71% 45%;
+  }
+
+  .light {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 226 85% 50%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 195 76% 36%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 226 85% 50%;
+
+    --heatmap-empty: 210 40% 94%;
+    --heatmap-low: 226 85% 80%;
+    --heatmap-medium: 226 85% 65%;
+    --heatmap-high: 226 85% 50%;
+    --heatmap-full: 142 71% 40%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground;
+  }
+}
+
+@layer components {
+  /* Winter Arc Card */
+  .arc-card {
+    @apply bg-card border border-border rounded-xl p-4 shadow-sm;
+  }
+
+  /* Status badge styles */
+  .status-kept {
+    @apply bg-green-500/20 text-green-400 border border-green-500/30;
+  }
+  .status-failed {
+    @apply bg-red-500/20 text-red-400 border border-red-500/30;
+  }
+  .status-partial {
+    @apply bg-yellow-500/20 text-yellow-400 border border-yellow-500/30;
+  }
+  .status-skipped {
+    @apply bg-gray-500/20 text-gray-400 border border-gray-500/30;
+  }
+
+  /* Progress bar */
+  .arc-progress {
+    @apply h-2 rounded-full bg-secondary overflow-hidden;
+  }
+
+  .arc-progress-fill {
+    @apply h-full rounded-full bg-primary transition-all duration-500;
+  }
+
+  /* Streak counter */
+  .streak-badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-500/20 text-orange-400 border border-orange-500/30;
+  }
+
+  /* Day counter */
+  .day-counter {
+    @apply text-xs font-bold tracking-widest text-muted-foreground uppercase;
+  }
+
+  /* Section header */
+  .section-header {
+    @apply text-xs font-bold tracking-widest text-muted-foreground uppercase mb-3;
+  }
+
+  /* Heatmap cell */
+  .heatmap-cell {
+    @apply w-3 h-3 rounded-sm transition-all duration-150 cursor-pointer hover:opacity-80;
+  }
+
+  .heatmap-empty {
+    background-color: hsl(var(--heatmap-empty));
+  }
+  .heatmap-low {
+    background-color: hsl(var(--heatmap-low));
+  }
+  .heatmap-medium {
+    background-color: hsl(var(--heatmap-medium));
+  }
+  .heatmap-high {
+    background-color: hsl(var(--heatmap-high));
+  }
+  .heatmap-full {
+    background-color: hsl(var(--heatmap-full));
+  }
+
+  /* Offline banner */
+  .offline-banner {
+    @apply fixed top-0 left-0 right-0 z-50 bg-yellow-500/90 text-yellow-950 text-center text-xs py-1 font-medium;
+  }
+
+  /* Bottom nav */
+  .bottom-nav {
+    @apply fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-xl border-t border-border;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@layer utilities {
+  /* Glassmorphism */
+  .glass {
+    @apply bg-card/60 backdrop-blur-xl border border-white/10;
+  }
+
+  /* Text gradient */
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-arc-400 to-frost-400;
+  }
+
+  /* Glow effects */
+  .glow-primary {
+    box-shadow: 0 0 20px hsl(226 85% 57% / 0.3);
+  }
+
+  .glow-success {
+    box-shadow: 0 0 20px hsl(142 71% 45% / 0.3);
+  }
+
+  /* Safe area */
+  .pb-safe {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .pt-safe {
+    padding-top: max(1rem, env(safe-area-inset-top));
+  }
+}
+
+/* Font import */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Reduce motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
