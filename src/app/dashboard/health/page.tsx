@@ -16,16 +16,18 @@ export default async function HealthPage() {
     { data: waterLogs },
     { data: foodLogs },
     { data: wakeLog },
+    { data: sleepLog },
     { data: profile },
     { data: gymHistory },
   ] = await Promise.all([
-    supabase.from('gym_logs').select('*').eq('user_id', user!.id).eq('date', today).single(),
+    supabase.from('gym_logs').select('*').eq('user_id', user!.id).eq('date', today).maybeSingle(),
     supabase.from('water_logs').select('*').eq('user_id', user!.id).eq('date', today),
     supabase.from('habit_logs')
       .select('*, habits(name, category)')
       .eq('user_id', user!.id)
       .eq('date', today),
-    supabase.from('wake_logs').select('*').eq('user_id', user!.id).eq('date', today).single(),
+    supabase.from('wake_logs').select('*').eq('user_id', user!.id).eq('date', today).maybeSingle(),
+    supabase.from('sleep_logs').select('*').eq('user_id', user!.id).eq('date', today).maybeSingle(),
     supabase.from('profiles').select('water_target_ml, wake_target_time').eq('user_id', user!.id).single(),
     supabase.from('gym_logs').select('date, status, workout_type').eq('user_id', user!.id).order('date', { ascending: false }).limit(30),
   ])
@@ -41,6 +43,7 @@ export default async function HealthPage() {
       totalWaterMl={totalWaterMl}
       waterTarget={profile?.water_target_ml ?? 2500}
       wakeLog={wakeLog ?? null}
+      sleepLog={sleepLog ?? null}
       wakeTarget={profile?.wake_target_time ?? '06:00'}
       gymHistory={gymHistory ?? []}
       gymSessions30Days={gymSessions}

@@ -14,6 +14,7 @@ interface HealthContentProps {
   totalWaterMl: number
   waterTarget: number
   wakeLog: any | null
+  sleepLog: any | null
   wakeTarget: string
   gymHistory: any[]
   gymSessions30Days: number
@@ -33,6 +34,7 @@ export function HealthContent({
   totalWaterMl,
   waterTarget,
   wakeLog,
+  sleepLog,
   wakeTarget,
   gymHistory,
   gymSessions30Days,
@@ -40,11 +42,14 @@ export function HealthContent({
 }: HealthContentProps) {
   const [activeTab, setActiveTab] = useState('fitness')
   const [wakeTime, setWakeTime] = useState(wakeLog?.wake_time ?? '')
-  const [bedTime, setBedTime] = useState('')
-  const [sleepQuality, setSleepQuality] = useState(3)
-  const [sleepNotes, setSleepNotes] = useState('')
+  const [bedTime, setBedTime] = useState(sleepLog?.bedtime ?? '')
+  const [sleepWakeTime, setSleepWakeTime] = useState(sleepLog?.wake_time ?? wakeLog?.wake_time ?? '')
+  const [sleepQuality, setSleepQuality] = useState(sleepLog?.quality ?? 3)
+  const [sleepNotes, setSleepNotes] = useState(sleepLog?.notes ?? '')
   const [savingWake, setSavingWake] = useState(false)
+  const [savingSleep, setSavingSleep] = useState(false)
   const [wakeSaved, setWakeSaved] = useState(!!wakeLog)
+  const [sleepSaved, setSleepSaved] = useState(!!sleepLog)
   const [wakeError, setWakeError] = useState<string | null>(null)
   const [sleepError, setSleepError] = useState<string | null>(null)
   const router = useRouter()
@@ -113,12 +118,14 @@ export function HealthContent({
 
   const handleSaveSleep = async () => {
     setSleepError(null)
+    setSavingSleep(true)
     const { createClient } = await import('@/lib/supabase/client')
     const supabase = createClient()
 
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) {
       setSleepError('Authentication error. Please refresh.')
+      setSavingSleep(false)
       return
     }
 
@@ -129,7 +136,7 @@ export function HealthContent({
         user_id: user.id,
         date: today,
         bedtime: bedTime || null,
-        wake_time: wakeTime || null,
+        wake_time: sleepWakeTime || null,
         quality: sleepQuality,
         notes: sleepNotes || null,
       }, { onConflict: 'user_id,date' })
@@ -139,9 +146,12 @@ export function HealthContent({
     if (error) {
       console.error('[HealthContent] sleep_logs save failed', { userId: user.id, date: today, error })
       setSleepError(`Could not save sleep log: ${error.message}`)
+      setSavingSleep(false)
       return
     }
 
+    setSavingSleep(false)
+    setSleepSaved(true)
     refresh()
   }
 
@@ -297,7 +307,7 @@ export function HealthContent({
                 <input
                   type="time"
                   value={bedTime}
-                  onChange={(e) => setBedTime(e.target.value)}
+                  onChange={(e) => { setBedTime(e.target.value); setSleepSaved(false); }}
                   className="w-full bg-secondary border border-border rounded-xl px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
@@ -305,19 +315,19 @@ export function HealthContent({
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Wake time</label>
                 <input
                   type="time"
-                  value={wakeTime}
-                  onChange={(e) => setWakeTime(e.target.value)}
+                  value={sleepWakeTime}
+                  onChange={(e) => { setSleepWakeTime(e.target.value); setSleepSaved(false); }}
                   className="w-full bg-secondary border border-border rounded-xl px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
             </div>
 
-            {bedTime && wakeTime && (
+            {bedTime && sleepWakeTime && (
               <div className="bg-secondary/50 rounded-xl px-4 py-3">
                 <p className="text-sm font-semibold text-foreground">
-                  {bedTime} → {wakeTime}
+                  {bedTime} → {sleepWakeTime}
                 </p>
-                <p className="text-xs text-muted-foreground mt-0.5">Sleep logged</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Sleep ready</p>
               </div>
             )}
 
@@ -329,7 +339,7 @@ export function HealthContent({
                 {[1,2,3,4,5].map(v => (
                   <button
                     key={v}
-                    onClick={() => setSleepQuality(v)}
+                    onClick={() => { setSleepQuality(v); setSleepSaved(false); }}
                     className={cn(
                       'flex-1 py-2 rounded-lg text-sm font-bold border transition-all',
                       v <= sleepQuality
@@ -345,7 +355,7 @@ export function HealthContent({
 
             <textarea
               value={sleepNotes}
-              onChange={(e) => setSleepNotes(e.target.value)}
+              onChange={(e) => { setSleepNotes(e.target.value); setSleepSaved(false); }}
               placeholder="Notes (optional)"
               rows={2}
               className="w-full bg-secondary border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
@@ -360,9 +370,10 @@ export function HealthContent({
             <button
               id="sleep-save"
               onClick={handleSaveSleep}
-              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold py-2.5 rounded-xl text-sm"
+              disabled={savingSleep}
+              className="w-full bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground font-bold py-2.5 rounded-xl text-sm"
             >
-              Save Sleep Log
+              {savingSleep ? 'Saving...' : sleepSaved ? '✓ Saved' : 'Save Sleep Log'}
             </button>
           </div>
         </div>
