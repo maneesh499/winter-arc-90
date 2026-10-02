@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 interface DailyReviewFormProps {
@@ -27,11 +26,22 @@ export function DailyReviewForm({ review, date, onUpdate }: DailyReviewFormProps
   const [energy, setEnergy] = useState(review?.energy ?? 3)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const supabase = createClient()
 
   const handleSave = async () => {
     setSaving(true)
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh and try again.')
+      setSaving(false)
+      return
+    }
+
     const data = {
+      user_id: user.id,
       date,
       went_well: wentWell || null,
       distracted_by: distractedBy || null,
@@ -40,11 +50,31 @@ export function DailyReviewForm({ review, date, onUpdate }: DailyReviewFormProps
       mood,
       energy,
     }
+
+    let error
     if (review?.id) {
-      await supabase.from('daily_reviews').update(data).eq('id', review.id)
+      const result = await supabase
+        .from('daily_reviews')
+        .update(data)
+        .eq('id', review.id)
+        .eq('user_id', user.id)
+      error = result.error
     } else {
-      await supabase.from('daily_reviews').insert(data)
+      const result = await supabase
+        .from('daily_reviews')
+        .upsert(data, { onConflict: 'user_id,date' })
+        .select()
+        .single()
+      error = result.error
     }
+
+    if (error) {
+      console.error('[DailyReviewForm] save failed', { userId: user.id, date, error })
+      setSaveError('Could not save review. Please try again.')
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -124,6 +154,12 @@ export function DailyReviewForm({ review, date, onUpdate }: DailyReviewFormProps
             />
           </div>
         ))}
+
+        {saveError && (
+          <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+            ⚠️ {saveError}
+          </p>
+        )}
 
         <button
           id="review-save"

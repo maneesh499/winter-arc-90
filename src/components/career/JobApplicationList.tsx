@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { getTodayIST } from '@/lib/dates'
 import type { ApplicationStatus } from '@/types'
 
 const STATUS_LABELS: Record<ApplicationStatus, string> = {
@@ -51,16 +52,40 @@ export function JobApplicationList({ applications, onUpdate }: JobApplicationLis
     notes: '',
   })
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const supabase = createClient()
 
   const handleSave = async () => {
     if (!form.company || !form.role) return
     setSaving(true)
-    const now = new Date().toISOString().split('T')[0]
-    await supabase.from('job_applications').insert({
-      ...form,
-      date_applied: form.status === 'applied' ? now : null,
-    })
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
+    // Use IST-safe date, not new Date().toISOString() which gives UTC date
+    const now = getTodayIST()
+    const { error } = await supabase
+      .from('job_applications')
+      .insert({
+        user_id: user.id,
+        ...form,
+        date_applied: form.status === 'applied' ? now : null,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[JobApplicationList] insert failed', { userId: user.id, company: form.company, error })
+      setSaveError(`Could not save application: ${error.message}`)
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setForm({ company: '', role: '', source: '', status: 'saved', recruiter_name: '', referral_name: '', next_action: '', notes: '' })
     setShowForm(false)
@@ -68,7 +93,13 @@ export function JobApplicationList({ applications, onUpdate }: JobApplicationLis
   }
 
   const updateStatus = async (id: string, status: ApplicationStatus) => {
-    await supabase.from('job_applications').update({ status }).eq('id', id)
+    const { error } = await supabase
+      .from('job_applications')
+      .update({ status })
+      .eq('id', id)
+    if (error) {
+      console.error('[JobApplicationList] status update failed', { id, status, error })
+    }
     onUpdate()
   }
 

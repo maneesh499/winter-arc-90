@@ -17,14 +17,25 @@ export function VocabLogger({ date, todayWords, onSave }: VocabLoggerProps) {
   const [example, setExample] = useState('')
   const [userSentence, setUserSentence] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const supabase = createClient()
 
   const handleSave = async () => {
     if (!word.trim() || !meaning.trim()) return
     setSaving(true)
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
     const isOnline = navigator.onLine
 
     const data = {
+      user_id: user.id,
       date,
       word: word.trim(),
       meaning: meaning.trim(),
@@ -34,10 +45,27 @@ export function VocabLogger({ date, todayWords, onSave }: VocabLoggerProps) {
     }
 
     if (!isOnline) {
-      const { data: { user } } = await supabase.auth.getUser()
-      await queueOfflineEntry('english_vocabulary', 'insert', { ...data, user_id: user!.id })
-    } else {
-      await supabase.from('english_vocabulary').insert(data)
+      await queueOfflineEntry('english_vocabulary', 'insert', data)
+      setSaving(false)
+      setWord('')
+      setMeaning('')
+      setExample('')
+      setUserSentence('')
+      onSave()
+      return
+    }
+
+    const { error } = await supabase
+      .from('english_vocabulary')
+      .insert(data)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[VocabLogger] insert failed', { userId: user.id, date, word: word.trim(), error })
+      setSaveError(`Could not save word: ${error.message}`)
+      setSaving(false)
+      return
     }
 
     setSaving(false)
@@ -89,6 +117,12 @@ export function VocabLogger({ date, todayWords, onSave }: VocabLoggerProps) {
           placeholder="Your own sentence (optional)"
           className="w-full bg-secondary border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
         />
+
+        {saveError && (
+          <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+            ⚠️ {saveError}
+          </p>
+        )}
 
         <button
           id="vocab-save"

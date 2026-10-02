@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getTodayIST, getTodayDayNumber } from '@/lib/dates'
+import { getTodayIST, getTodayDayNumber, getISTMonthBounds, getISTCurrentMonth } from '@/lib/dates'
 import { FinanceContent } from '@/components/finance/FinanceContent'
 import type { Metadata } from 'next'
 
@@ -10,11 +10,9 @@ export default async function FinancePage() {
   const { data: { user } } = await supabase.auth.getUser()
   const today = getTodayIST()
 
-  // Get current month bounds
-  const now = new Date()
-  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-  const monthEnd = new Date(nextMonth.getTime() - 1).toISOString().split('T')[0]
+  // Use IST-safe month bounds (not new Date() manipulations which give UTC dates)
+  const { monthStart, monthEnd } = getISTMonthBounds()
+  const currentMonth = getISTCurrentMonth()
 
   const [
     { data: expenses },
@@ -47,7 +45,7 @@ export default async function FinancePage() {
       rapidoIncome={rapidoIncome}
       monthlyIncome={monthlyIncome}
       remaining={remaining}
-      currentMonth={`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`}
+      currentMonth={currentMonth}
       userId={user!.id}
     />
   )

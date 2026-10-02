@@ -231,7 +231,41 @@ export function getProgramMonth(dateStr: string): number | null {
   return 3
 }
 
-// Get month name for program month number
+// Get program month name for program month number
 export function getProgramMonthName(month: number): string {
   return ['October', 'November', 'December'][month - 1] || ''
+}
+
+/**
+ * Get IST-safe current month bounds.
+ * Returns { monthStart: 'YYYY-MM-01', monthEnd: 'YYYY-MM-DD' } in IST.
+ * Use this instead of new Date().toISOString() which gives UTC date.
+ */
+export function getISTMonthBounds(): { monthStart: string; monthEnd: string } {
+  const now = getNowIST()
+  const year = now.getFullYear()
+  const month = now.getMonth() // 0-indexed
+  const monthStart = format(new Date(year, month, 1), 'yyyy-MM-dd')
+  // Last day of current month
+  const lastDay = new Date(year, month + 1, 0).getDate()
+  const monthEnd = format(new Date(year, month, lastDay), 'yyyy-MM-dd')
+  return { monthStart, monthEnd }
+}
+
+/**
+ * Get IST-safe date string N days ago.
+ * Use this instead of new Date().toISOString() which gives UTC date.
+ */
+export function getISTDateNDaysAgo(n: number): string {
+  const now = getNowIST()
+  const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() - n)
+  return format(date, 'yyyy-MM-dd')
+}
+
+/**
+ * Get IST-safe current month as 'YYYY-MM' string.
+ */
+export function getISTCurrentMonth(): string {
+  const now = getNowIST()
+  return format(now, 'yyyy-MM')
 }

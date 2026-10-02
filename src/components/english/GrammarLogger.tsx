@@ -13,18 +13,43 @@ export function GrammarLogger({ date, onSave }: GrammarLoggerProps) {
   const [questions, setQuestions] = useState(5)
   const [completed, setCompleted] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const supabase = createClient()
 
   const handleSave = async () => {
     setSaving(true)
-    await supabase.from('english_sessions').insert({
-      date,
-      activity_type: 'grammar',
-      minutes: Math.ceil(questions * 1.5), // ~1.5 min per question
-      topic: `${questions} grammar questions`,
-      self_rating: null,
-      notes: null,
-    })
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
+    // Note: 'grammar' is not in the english_sessions activity_type CHECK constraint
+    // Valid values: 'speaking','reading_aloud','vocabulary','grammar','interview_speaking'
+    const { error } = await supabase
+      .from('english_sessions')
+      .insert({
+        user_id: user.id,
+        date,
+        activity_type: 'grammar',
+        minutes: Math.ceil(questions * 1.5), // ~1.5 min per question
+        topic: `${questions} grammar questions`,
+        self_rating: null,
+        notes: null,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[GrammarLogger] insert failed', { userId: user.id, date, questions, error })
+      setSaveError(`Could not save grammar log: ${error.message}`)
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setCompleted(true)
     onSave()
@@ -68,6 +93,12 @@ export function GrammarLogger({ date, onSave }: GrammarLoggerProps) {
           ))}
         </div>
       </div>
+
+      {saveError && (
+        <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+          ⚠️ {saveError}
+        </p>
+      )}
 
       <button
         id="grammar-save"

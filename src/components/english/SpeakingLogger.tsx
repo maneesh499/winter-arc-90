@@ -34,6 +34,7 @@ export function SpeakingLogger({ date, onSave }: SpeakingLoggerProps) {
   const [selfRating, setSelfRating] = useState(3)
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const supabase = createClient()
 
   const handleSave = async () => {
@@ -41,9 +42,19 @@ export function SpeakingLogger({ date, onSave }: SpeakingLoggerProps) {
     if (minutes <= 0) return
 
     setSaving(true)
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh and try again.')
+      setSaving(false)
+      return
+    }
+
     const isOnline = navigator.onLine
 
     const data = {
+      user_id: user.id,
       date,
       activity_type: activityType,
       minutes,
@@ -53,10 +64,27 @@ export function SpeakingLogger({ date, onSave }: SpeakingLoggerProps) {
     }
 
     if (!isOnline) {
-      const { data: { user } } = await supabase.auth.getUser()
-      await queueOfflineEntry('english_sessions', 'insert', { ...data, user_id: user!.id })
-    } else {
-      await supabase.from('english_sessions').insert(data)
+      await queueOfflineEntry('english_sessions', 'insert', data)
+      setSaving(false)
+      setTopic('')
+      setCustomTopic('')
+      setMinutes(10)
+      setNotes('')
+      onSave()
+      return
+    }
+
+    const { error } = await supabase
+      .from('english_sessions')
+      .insert(data)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[SpeakingLogger] insert failed', { userId: user.id, date, activityType, error })
+      setSaveError(`Could not save session: ${error.message}`)
+      setSaving(false)
+      return
     }
 
     setSaving(false)
@@ -184,6 +212,12 @@ export function SpeakingLogger({ date, onSave }: SpeakingLoggerProps) {
           className="w-full bg-secondary border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
         />
       </div>
+
+      {saveError && (
+        <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+          ⚠️ {saveError}
+        </p>
+      )}
 
       <button
         id="speaking-save"

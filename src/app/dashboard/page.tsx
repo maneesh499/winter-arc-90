@@ -1,10 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
-import { getTodayIST, getTodayDayNumber, getProgramStatus, getDaysUntilStart, getDaysRemaining, formatDate, PROGRAM_DAYS } from '@/lib/dates'
-import { ScoreRing } from '@/components/dashboard/ScoreRing'
-import { QuickStats } from '@/components/dashboard/QuickStats'
-import { StreakCards } from '@/components/dashboard/StreakCards'
+import { getTodayIST, getTodayDayNumber, getProgramStatus, getDaysUntilStart, formatDate } from '@/lib/dates'
+import { CommandCenter } from '@/components/dashboard/CommandCenter'
 import { TodayMission } from '@/components/dashboard/TodayMission'
-import Link from 'next/link'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = { title: 'Winter Arc - Command Center' }
 
 export default async function DashboardPage() {
   const supabase = createClient()
@@ -14,38 +14,12 @@ export default async function DashboardPage() {
   const dayNumber = getTodayDayNumber()
   const status = getProgramStatus()
 
-  // Fetch today's metrics
-  const { data: metrics } = await supabase
-    .from('daily_metrics')
-    .select('*')
-    .eq('user_id', user!.id)
-    .eq('date', today)
-    .single()
-
-  // Fetch profile
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('display_name')
-    .eq('user_id', user!.id)
-    .single()
-
-  // Fetch today's habit logs
-  const { data: habitLogs } = await supabase
-    .from('habit_logs')
-    .select('*, habits(name, category, is_optional)')
-    .eq('user_id', user!.id)
-    .eq('date', today)
-
-  // Get greeting based on time
-  const hour = new Date().getHours()
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
-  const name = profile?.display_name?.split(' ')[0] || 'Champion'
-
-  // Countdown if before program
+  // Pre-program state
   if (status === 'before') {
     const daysLeft = getDaysUntilStart()
+    const { data: habitLogs } = await supabase.from('habit_logs').select('*, habits(name, category, is_optional)').eq('user_id', user!.id).eq('date', today)
     return (
-      <div className="space-y-6 animate-slide-up">
+      <div className="space-y-6 animate-slide-up pb-24">
         <div className="arc-card text-center py-10 space-y-4">
           <div className="text-6xl font-black text-primary">{daysLeft}</div>
           <p className="text-xl font-bold text-foreground">Days until Winter Arc begins</p>
@@ -67,103 +41,55 @@ export default async function DashboardPage() {
     )
   }
 
-  // Completion review if after program
-  if (status === 'completed') {
-    return (
-      <div className="space-y-6 animate-slide-up">
-        <div className="arc-card text-center py-10 space-y-4">
-          <div className="text-5xl">🏆</div>
-          <h1 className="text-3xl font-black text-foreground">WINTER ARC COMPLETE</h1>
-          <p className="text-muted-foreground">90 days. Done.</p>
-          <Link
-            href="/dashboard/progress"
-            className="inline-block bg-primary text-primary-foreground font-bold px-6 py-3 rounded-xl"
-          >
-            View 90-Day Review →
-          </Link>
-        </div>
-      </div>
-    )
-  }
+  // Fetch all intelligent domains in parallel
+  const [
+    { data: metrics },
+    { data: profile },
+    { data: habitLogs },
+    { data: sleepLog },
+    { data: wakeLog },
+    { data: waterLogs },
+    { data: gymLog },
+    { data: learningSessions },
+    { data: englishSessions },
+    { data: plan },
+    { data: review },
+  ] = await Promise.all([
+    supabase.from('daily_metrics').select('*').eq('user_id', user!.id).eq('date', today).single(),
+    supabase.from('profiles').select('display_name').eq('user_id', user!.id).single(),
+    supabase.from('habit_logs').select('*, habits(name, category, is_optional)').eq('user_id', user!.id).eq('date', today),
+    supabase.from('sleep_logs').select('*').eq('user_id', user!.id).eq('date', today).maybeSingle(),
+    supabase.from('wake_logs').select('*').eq('user_id', user!.id).eq('date', today).maybeSingle(),
+    supabase.from('water_logs').select('amount_ml').eq('user_id', user!.id).eq('date', today),
+    supabase.from('gym_logs').select('*').eq('user_id', user!.id).eq('date', today).maybeSingle(),
+    supabase.from('learning_sessions').select('minutes').eq('user_id', user!.id).eq('date', today),
+    supabase.from('english_sessions').select('minutes').eq('user_id', user!.id).eq('date', today),
+    supabase.from('daily_plans').select('*').eq('user_id', user!.id).eq('date', today).maybeSingle(),
+    supabase.from('daily_reviews').select('*').eq('user_id', user!.id).eq('date', today).maybeSingle(),
+  ])
 
-  const score = metrics?.total_score ?? 0
-  const habitsCompleted = metrics?.habits_completed ?? 0
-  const habitsTotal = metrics?.habits_total ?? 0
-  const progress = PROGRAM_DAYS > 0 ? Math.round(((dayNumber ?? 0) / PROGRAM_DAYS) * 100) : 0
+  // Calculate aggregates
+  const waterTotal = (waterLogs ?? []).reduce((sum, log) => sum + log.amount_ml, 0)
+  const careerMinutes = (learningSessions ?? []).reduce((sum, session) => sum + session.minutes, 0)
+  const englishMinutes = (englishSessions ?? []).reduce((sum, session) => sum + session.minutes, 0)
 
   return (
-    <div className="space-y-6 animate-slide-up">
-      {/* Header */}
-      <div className="space-y-1">
-        <p className="text-muted-foreground text-sm font-medium">{greeting},</p>
-        <h1 className="text-3xl font-black text-foreground">{name}</h1>
-        <div className="flex items-center gap-3">
-          <span className="day-counter">
-            DAY {dayNumber} / {PROGRAM_DAYS}
-          </span>
-          <span className="text-muted-foreground text-xs">·</span>
-          <span className="text-muted-foreground text-xs">{formatDate(today, 'EEEE, MMM d')}</span>
-        </div>
-      </div>
-
-      {/* Score + Progress */}
-      <div className="grid grid-cols-2 gap-4">
-        <ScoreRing score={score} />
-        <div className="arc-card space-y-3">
-          <p className="section-header">Program</p>
-          <div>
-            <div className="flex justify-between items-baseline mb-1">
-              <span className="text-2xl font-black text-foreground">{progress}%</span>
-              <span className="text-xs text-muted-foreground">{getDaysRemaining()}d left</span>
-            </div>
-            <div className="arc-progress">
-              <div className="arc-progress-fill" style={{ width: `${progress}%` }} />
-            </div>
-          </div>
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>{habitsCompleted}/{habitsTotal} today</span>
-            <span>Oct → Dec</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick stats */}
-      <QuickStats metrics={metrics} />
-
-      {/* Today's mission */}
-      <TodayMission logs={habitLogs || []} />
-
-      {/* Module quick links */}
-      <div>
-        <p className="section-header">Modules</p>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { href: '/dashboard/career', label: 'Career Mode', icon: '💼', desc: 'Job prep & learning' },
-            { href: '/dashboard/english', label: 'English', icon: '🗣️', desc: 'Speaking & vocab' },
-            { href: '/dashboard/health', label: 'Health', icon: '💪', desc: 'Gym, food, water' },
-            { href: '/dashboard/creative', label: 'Creative', icon: '🎬', desc: 'Films & writing' },
-            { href: '/dashboard/finance', label: 'Finance', icon: '₹', desc: 'Income & expenses' },
-            { href: '/dashboard/progress', label: 'Progress', icon: '📈', desc: '90-day view' },
-          ].map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="arc-card hover:border-primary/30 hover:bg-primary/5 transition-all duration-200 group"
-            >
-              <div className="flex items-start gap-3">
-                <span className="text-xl group-hover:scale-110 transition-transform">{item.icon}</span>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">{item.label}</p>
-                  <p className="text-xs text-muted-foreground">{item.desc}</p>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      {/* Streak cards */}
-      <StreakCards userId={user!.id} />
-    </div>
+    <>
+      <CommandCenter 
+        today={today}
+        dayNumber={dayNumber}
+        profile={profile}
+        metrics={metrics}
+        habitLogs={habitLogs ?? []}
+        sleep={sleepLog}
+        wake={wakeLog}
+        waterTotal={waterTotal}
+        gym={gymLog}
+        careerMinutes={careerMinutes}
+        englishMinutes={englishMinutes}
+        plan={plan}
+        review={review}
+      />
+    </>
   )
 }

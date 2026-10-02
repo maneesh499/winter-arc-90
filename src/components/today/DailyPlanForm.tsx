@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getTodayIST } from '@/lib/dates'
+import { format, addDays, parseISO } from 'date-fns'
 
 interface DailyPlanFormProps {
   plan: {
@@ -46,16 +48,27 @@ export function DailyPlanForm({ plan, date, onUpdate }: DailyPlanFormProps) {
   const [notes, setNotes] = useState(plan?.notes ?? '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const supabase = createClient()
 
-  // Get tomorrow's date
-  const tomorrow = new Date(date)
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  const tomorrowStr = tomorrow.toISOString().split('T')[0]
+  // Get tomorrow's date string safely (no UTC shift)
+  const [year, month, day] = date.split('-').map(Number)
+  const tomorrow = new Date(year, month - 1, day + 1)
+  const tomorrowStr = format(tomorrow, 'yyyy-MM-dd')
 
   const handleSave = async () => {
     setSaving(true)
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh and try again.')
+      setSaving(false)
+      return
+    }
+
     const data = {
+      user_id: user.id,
       date: tomorrowStr, // Plan is for tomorrow
       top_1: top1 || null,
       top_2: top2 || null,
@@ -68,11 +81,31 @@ export function DailyPlanForm({ plan, date, onUpdate }: DailyPlanFormProps) {
       rapido_plan: rapidoPlan,
       notes: notes || null,
     }
+
+    let error
     if (plan?.id) {
-      await supabase.from('daily_plans').update(data).eq('id', plan.id)
+      const result = await supabase
+        .from('daily_plans')
+        .update(data)
+        .eq('id', plan.id)
+        .eq('user_id', user.id)
+      error = result.error
     } else {
-      await supabase.from('daily_plans').upsert(data, { onConflict: 'user_id,date' })
+      const result = await supabase
+        .from('daily_plans')
+        .upsert(data, { onConflict: 'user_id,date' })
+        .select()
+        .single()
+      error = result.error
     }
+
+    if (error) {
+      console.error('[DailyPlanForm] save failed', { userId: user.id, date: tomorrowStr, error })
+      setSaveError('Could not save plan. Please try again.')
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -202,6 +235,12 @@ export function DailyPlanForm({ plan, date, onUpdate }: DailyPlanFormProps) {
             className="w-full bg-secondary border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
           />
         </div>
+
+        {saveError && (
+          <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+            ⚠️ {saveError}
+          </p>
+        )}
 
         <button
           id="plan-save"

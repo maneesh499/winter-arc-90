@@ -32,14 +32,24 @@ export function GymLogger({ gymLog, date, onUpdate }: GymLoggerProps) {
   const [duration, setDuration] = useState(gymLog?.duration_minutes?.toString() ?? '')
   const [notes, setNotes] = useState(gymLog?.notes ?? '')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  // Track current gym log id (may be set after first save)
+  const [currentLogId, setCurrentLogId] = useState<string | null>(gymLog?.id ?? null)
   const supabase = createClient()
 
   const save = async (newStatus: GymStatus) => {
     setSaving(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh and try again.')
+      setSaving(false)
+      return
+    }
 
     const data = {
-      user_id: user!.id,
+      user_id: user.id,
       date,
       status: newStatus,
       workout_type: workoutType || null,
@@ -47,10 +57,33 @@ export function GymLogger({ gymLog, date, onUpdate }: GymLoggerProps) {
       notes: notes || null,
     }
 
-    if (gymLog?.id) {
-      await supabase.from('gym_logs').update(data).eq('id', gymLog.id)
+    if (currentLogId) {
+      const { error } = await supabase
+        .from('gym_logs')
+        .update(data)
+        .eq('id', currentLogId)
+        .eq('user_id', user.id)
+      if (error) {
+        console.error('[GymLogger] update failed', { userId: user.id, date, newStatus, error })
+        setSaveError('Could not save gym status. Please try again.')
+        setSaving(false)
+        return
+      }
     } else {
-      await supabase.from('gym_logs').upsert(data)
+      const { data: inserted, error } = await supabase
+        .from('gym_logs')
+        .upsert(data, { onConflict: 'user_id,date' })
+        .select()
+        .single()
+      if (error) {
+        console.error('[GymLogger] upsert failed', { userId: user.id, date, newStatus, error })
+        setSaveError('Could not save gym status. Please try again.')
+        setSaving(false)
+        return
+      }
+      if (inserted?.id) {
+        setCurrentLogId(inserted.id)
+      }
     }
 
     setStatus(newStatus)
@@ -140,6 +173,12 @@ export function GymLogger({ gymLog, date, onUpdate }: GymLoggerProps) {
             ? `${workoutType.replace('_', ' ')} workout${duration ? ` · ${duration} min` : ''}`
             : STATUSES.find((s) => s.value === status)?.label}
         </div>
+      )}
+
+      {saveError && (
+        <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+          ⚠️ {saveError}
+        </p>
       )}
     </div>
   )

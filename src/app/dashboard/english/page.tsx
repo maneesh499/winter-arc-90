@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getTodayIST, getTodayDayNumber } from '@/lib/dates'
+import { getTodayIST, getTodayDayNumber, getISTDateNDaysAgo } from '@/lib/dates'
 import { EnglishContent } from '@/components/english/EnglishContent'
 import type { Metadata } from 'next'
 
@@ -11,45 +11,52 @@ export default async function EnglishPage() {
   const today = getTodayIST()
   const dayNumber = getTodayDayNumber()
 
-  // Today's English sessions
-  const { data: todaySessions } = await supabase
-    .from('english_sessions')
-    .select('*')
-    .eq('user_id', user!.id)
-    .eq('date', today)
-    .order('created_at', { ascending: false })
+  // Use IST-safe date (not toISOString which gives UTC)
+  const weekStr = getISTDateNDaysAgo(7)
 
-  // Today's vocabulary
-  const { data: todayVocab } = await supabase
-    .from('english_vocabulary')
-    .select('*')
-    .eq('user_id', user!.id)
-    .eq('date', today)
-    .order('created_at', { ascending: false })
+  const [
+    { data: todaySessions },
+    { data: todayVocab },
+    { data: interviewAnswers },
+    { data: weekSessions },
+    { count: totalVocabCount },
+  ] = await Promise.all([
+    // Today's English sessions
+    supabase
+      .from('english_sessions')
+      .select('*')
+      .eq('user_id', user!.id)
+      .eq('date', today)
+      .order('created_at', { ascending: false }),
 
-  // Interview answers
-  const { data: interviewAnswers } = await supabase
-    .from('english_interview_answers')
-    .select('*')
-    .eq('user_id', user!.id)
-    .order('last_practiced', { ascending: false, nullsFirst: false })
+    // Today's vocabulary
+    supabase
+      .from('english_vocabulary')
+      .select('*')
+      .eq('user_id', user!.id)
+      .eq('date', today)
+      .order('created_at', { ascending: false }),
 
-  // This week's sessions for stats
-  const weekAgo = new Date()
-  weekAgo.setDate(weekAgo.getDate() - 7)
-  const weekStr = weekAgo.toISOString().split('T')[0]
+    // Interview answers
+    supabase
+      .from('english_interview_answers')
+      .select('*')
+      .eq('user_id', user!.id)
+      .order('last_practiced', { ascending: false, nullsFirst: false }),
 
-  const { data: weekSessions } = await supabase
-    .from('english_sessions')
-    .select('date, minutes, activity_type')
-    .eq('user_id', user!.id)
-    .gte('date', weekStr)
+    // This week's sessions for stats
+    supabase
+      .from('english_sessions')
+      .select('date, minutes, activity_type')
+      .eq('user_id', user!.id)
+      .gte('date', weekStr),
 
-  // All-time vocab count
-  const { count: totalVocabCount } = await supabase
-    .from('english_vocabulary')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', user!.id)
+    // All-time vocab count
+    supabase
+      .from('english_vocabulary')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user!.id),
+  ])
 
   const todayMinutes = (todaySessions ?? []).reduce((s, e) => s + e.minutes, 0)
   const weekMinutes = (weekSessions ?? []).reduce((s, e) => s + e.minutes, 0)

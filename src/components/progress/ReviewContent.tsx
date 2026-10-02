@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { cn, formatCurrency } from '@/lib/utils'
-import { PROGRAM_DAYS } from '@/lib/dates'
+import { PROGRAM_DAYS, parseLocalDate } from '@/lib/dates'
+import { format, addDays, startOfWeek } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 
 interface ReviewContentProps {
@@ -61,6 +62,7 @@ export function ReviewContent({
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const supabase = createClient()
 
   // Week stats
@@ -90,10 +92,38 @@ export function ReviewContent({
 
   const handleSaveWeekly = async () => {
     setSaving(true)
-    await supabase.from('weekly_plans').upsert({
-      week_start: (() => { const d = new Date(today); d.setDate(d.getDate() - d.getDay() + 1); return d.toISOString().split('T')[0] })(),
-      ...weeklyForm,
-    }, { onConflict: 'user_id,week_start' })
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
+    // Calculate IST-safe week start (Monday) from today string, no UTC shift
+    const [y, m, d] = today.split('-').map(Number)
+    const todayDate = new Date(y, m - 1, d)
+    const weekStart = startOfWeek(todayDate, { weekStartsOn: 1 })
+    const weekStartStr = format(weekStart, 'yyyy-MM-dd')
+
+    const { error } = await supabase
+      .from('weekly_plans')
+      .upsert({
+        user_id: user.id,
+        week_start: weekStartStr,
+        ...weeklyForm,
+      }, { onConflict: 'user_id,week_start' })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[ReviewContent] weekly_plans upsert failed', { userId: user.id, weekStart: weekStartStr, error })
+      setSaveError(`Could not save weekly review: ${error.message}`)
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -101,10 +131,32 @@ export function ReviewContent({
 
   const handleSaveFinal = async () => {
     setSaving(true)
-    await supabase.from('daily_reviews').upsert({
-      date: '2026-12-29',
-      ...finalForm,
-    }, { onConflict: 'user_id,date' })
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
+    const { error } = await supabase
+      .from('daily_reviews')
+      .upsert({
+        user_id: user.id,
+        date: '2026-12-29',
+        ...finalForm,
+      }, { onConflict: 'user_id,date' })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[ReviewContent] final review upsert failed', { userId: user.id, error })
+      setSaveError(`Could not save final review: ${error.message}`)
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)

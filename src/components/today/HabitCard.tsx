@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useOptimistic } from 'react'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { queueOfflineEntry } from '@/lib/offline-db'
@@ -37,14 +37,26 @@ export function HabitCard({ habit, log, date, onUpdate }: HabitCardProps) {
   )
   const [notes, setNotes] = useState(log?.notes ?? '')
   const [showNotes, setShowNotes] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  // Track current log id (may be set after first save)
+  const [currentLogId, setCurrentLogId] = useState<string | null>(log?.id ?? null)
   const supabase = createClient()
 
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true
 
   const saveLog = async (status: HabitStatus, value?: number) => {
     setSaving(true)
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Auth error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
     const data = {
-      user_id: (await supabase.auth.getUser()).data.user!.id,
+      user_id: user.id,
       habit_id: habit.id,
       date,
       status,
@@ -53,8 +65,8 @@ export function HabitCard({ habit, log, date, onUpdate }: HabitCardProps) {
     }
 
     if (!isOnline) {
-      if (log?.id) {
-        await queueOfflineEntry('habit_logs', 'update', { ...data, id: log.id })
+      if (currentLogId) {
+        await queueOfflineEntry('habit_logs', 'update', { ...data, id: currentLogId })
       } else {
         await queueOfflineEntry('habit_logs', 'insert', data)
       }
@@ -63,10 +75,33 @@ export function HabitCard({ habit, log, date, onUpdate }: HabitCardProps) {
       return
     }
 
-    if (log?.id) {
-      await supabase.from('habit_logs').update(data).eq('id', log.id)
+    if (currentLogId) {
+      const { error } = await supabase
+        .from('habit_logs')
+        .update(data)
+        .eq('id', currentLogId)
+        .eq('user_id', user.id)
+      if (error) {
+        console.error('[HabitCard] update failed', { habitId: habit.id, userId: user.id, date, status, error })
+        setSaveError('Could not save. Please try again.')
+        setSaving(false)
+        return
+      }
     } else {
-      await supabase.from('habit_logs').upsert(data)
+      const { data: inserted, error } = await supabase
+        .from('habit_logs')
+        .upsert(data, { onConflict: 'user_id,habit_id,date' })
+        .select()
+        .single()
+      if (error) {
+        console.error('[HabitCard] upsert failed', { habitId: habit.id, userId: user.id, date, status, error })
+        setSaveError('Could not save. Please try again.')
+        setSaving(false)
+        return
+      }
+      if (inserted?.id) {
+        setCurrentLogId(inserted.id)
+      }
     }
 
     setCurrentStatus(status)
@@ -184,6 +219,10 @@ export function HabitCard({ habit, log, date, onUpdate }: HabitCardProps) {
 
       {saving && (
         <p className="text-xs text-muted-foreground mt-1">Saving...</p>
+      )}
+
+      {saveError && (
+        <p className="text-xs text-red-400 mt-1">⚠️ {saveError}</p>
       )}
     </div>
   )

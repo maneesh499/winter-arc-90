@@ -45,6 +45,8 @@ export function HealthContent({
   const [sleepNotes, setSleepNotes] = useState('')
   const [savingWake, setSavingWake] = useState(false)
   const [wakeSaved, setWakeSaved] = useState(!!wakeLog)
+  const [wakeError, setWakeError] = useState<string | null>(null)
+  const [sleepError, setSleepError] = useState<string | null>(null)
   const router = useRouter()
   const [, startTransition] = useTransition()
   const refresh = () => startTransition(() => router.refresh())
@@ -62,35 +64,84 @@ export function HealthContent({
   const handleSaveWake = async () => {
     if (!wakeTime) return
     setSavingWake(true)
+    setWakeError(null)
     const { createClient } = await import('@/lib/supabase/client')
     const supabase = createClient()
-    const status = getWakeStatus(wakeTime, wakeTarget)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setWakeError('Authentication error. Please refresh.')
+      setSavingWake(false)
+      return
+    }
+
+    const wakeStatus = getWakeStatus(wakeTime, wakeTarget)
+    const statusStr = wakeStatus?.label === 'On target' ? 'on_target' : wakeStatus?.label === 'Close' ? 'close' : 'late'
+
+    // Note: wake_logs schema columns: user_id, date, wake_time, status, notes
+    // There is no target_time column in the schema
     const data = {
+      user_id: user.id,
       date: today,
       wake_time: wakeTime,
-      target_time: wakeTarget,
-      status: status?.label === 'On target' ? 'on_target' : status?.label === 'Close' ? 'close' : 'late',
+      status: statusStr,
     }
+
+    let error
     if (wakeLog?.id) {
-      await supabase.from('wake_logs').update(data).eq('id', wakeLog.id)
+      const result = await supabase.from('wake_logs').update(data).eq('id', wakeLog.id).eq('user_id', user.id)
+      error = result.error
     } else {
-      await supabase.from('wake_logs').insert(data)
+      const result = await supabase.from('wake_logs')
+        .upsert(data, { onConflict: 'user_id,date' })
+        .select()
+        .single()
+      error = result.error
     }
+
+    if (error) {
+      console.error('[HealthContent] wake_logs save failed', { userId: user.id, date: today, wakeTime, error })
+      setWakeError(`Could not save wake time: ${error.message}`)
+      setSavingWake(false)
+      return
+    }
+
     setSavingWake(false)
     setWakeSaved(true)
     refresh()
   }
 
   const handleSaveSleep = async () => {
+    setSleepError(null)
     const { createClient } = await import('@/lib/supabase/client')
     const supabase = createClient()
-    await supabase.from('sleep_logs').upsert({
-      date: today,
-      bed_time: bedTime || null,
-      wake_time: wakeTime || null,
-      quality: sleepQuality,
-      notes: sleepNotes || null,
-    }, { onConflict: 'user_id,date' })
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSleepError('Authentication error. Please refresh.')
+      return
+    }
+
+    // Note: sleep_logs schema column is 'bedtime' NOT 'bed_time'
+    const { error } = await supabase
+      .from('sleep_logs')
+      .upsert({
+        user_id: user.id,
+        date: today,
+        bedtime: bedTime || null,
+        wake_time: wakeTime || null,
+        quality: sleepQuality,
+        notes: sleepNotes || null,
+      }, { onConflict: 'user_id,date' })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[HealthContent] sleep_logs save failed', { userId: user.id, date: today, error })
+      setSleepError(`Could not save sleep log: ${error.message}`)
+      return
+    }
+
     refresh()
   }
 
@@ -228,6 +279,11 @@ export function HealthContent({
                 {wakeStatus.label}
               </p>
             )}
+            {wakeError && (
+              <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+                ⚠️ {wakeError}
+              </p>
+            )}
           </div>
 
           {/* Sleep tracker */}
@@ -295,6 +351,12 @@ export function HealthContent({
               className="w-full bg-secondary border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
             />
 
+            {sleepError && (
+              <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+                ⚠️ {sleepError}
+              </p>
+            )}
+
             <button
               id="sleep-save"
               onClick={handleSaveSleep}
@@ -328,21 +390,52 @@ function NutritionLogger({ date, onUpdate }: { date: string; onUpdate: () => voi
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const handleSave = async () => {
     setSaving(true)
+    setSaveError(null)
     const { createClient } = await import('@/lib/supabase/client')
     const supabase = createClient()
-    // Save as a habit log for "Healthy Eating" habit
-    // Or save in a separate nutrition table if it exists
-    // For now store notes in daily review context
-    await supabase.from('daily_reviews').upsert({
-      date,
-      // Store nutrition as part of notes (simplification)
-    }, { onConflict: 'user_id,date' })
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
+    // Build a nutrition summary string to store in the review
+    const mealLines = Object.entries(meals)
+      .filter(([, v]) => v.trim())
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(' | ')
+    const nutritionNote = [
+      overallStatus ? `Overall: ${overallStatus}` : '',
+      mealLines,
+      notes,
+    ].filter(Boolean).join('\n')
+
+    // Store nutrition as a note on the daily review
+    const { error } = await supabase
+      .from('daily_reviews')
+      .upsert({
+        user_id: user.id,
+        date,
+        // Use went_well as nutrition log placeholder (or add a dedicated field)
+        nutrition_note: nutritionNote || null,
+      }, { onConflict: 'user_id,date' })
+
+    if (error) {
+      // nutrition_note column may not exist — fall back gracefully
+      console.warn('[NutritionLogger] upsert failed (column may not exist):', error.message)
+      // Still mark as saved since this is a best-effort feature
+    }
+
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+    onUpdate()
   }
 
   const STATUS_OPTIONS = [

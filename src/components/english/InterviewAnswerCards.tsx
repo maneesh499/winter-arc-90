@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { getTodayIST } from '@/lib/dates'
 import type { EnglishInterviewAnswer } from '@/types'
 
 const DEFAULT_QUESTIONS = [
@@ -31,6 +32,7 @@ export function InterviewAnswerCards({ answers, onUpdate }: InterviewAnswerCards
   const [showAddForm, setShowAddForm] = useState(false)
   const [newQuestion, setNewQuestion] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const supabase = createClient()
 
   // Questions that have answers saved
@@ -47,25 +49,56 @@ export function InterviewAnswerCards({ answers, onUpdate }: InterviewAnswerCards
 
   const handleSavePractice = async (answerId: string) => {
     setSaving(true)
-    const today = new Date().toISOString().split('T')[0]
-    await supabase
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
+    // Use IST-safe date, not new Date().toISOString() which gives UTC date
+    const today = getTodayIST()
+    const answerQuestion = answers.find(a => a.id === answerId)?.question ?? 'Interview practice'
+    const newCount = (answers.find(a => a.id === answerId)?.practice_count ?? 0) + 1
+
+    const { error: answerError } = await supabase
       .from('english_interview_answers')
       .update({
         answer_notes: editNotes || null,
         confidence: editConfidence,
         last_practiced: today,
-        practice_count: (answers.find(a => a.id === answerId)?.practice_count ?? 0) + 1,
+        practice_count: newCount,
       })
       .eq('id', answerId)
+      .eq('user_id', user.id)
+
+    if (answerError) {
+      console.error('[InterviewAnswerCards] update failed', { userId: user.id, answerId, answerError })
+      setSaveError(`Could not save practice: ${answerError.message}`)
+      setSaving(false)
+      return
+    }
 
     // Also log an English session
-    await supabase.from('english_sessions').insert({
-      date: today,
-      activity_type: 'interview_speaking',
-      minutes: 5,
-      topic: answers.find(a => a.id === answerId)?.question ?? 'Interview practice',
-      self_rating: editConfidence,
-    })
+    const { error: sessionError } = await supabase
+      .from('english_sessions')
+      .insert({
+        user_id: user.id,
+        date: today,
+        activity_type: 'interview_speaking',
+        minutes: 5,
+        topic: answerQuestion,
+        self_rating: editConfidence,
+      })
+      .select()
+      .single()
+
+    if (sessionError) {
+      // Non-fatal: the answer was saved, only session logging failed
+      console.warn('[InterviewAnswerCards] session insert failed', { userId: user.id, today, sessionError })
+    }
 
     setSaving(false)
     setEditing(null)
@@ -74,13 +107,35 @@ export function InterviewAnswerCards({ answers, onUpdate }: InterviewAnswerCards
 
   const handleAddQuestion = async (question: string) => {
     setSaving(true)
-    await supabase.from('english_interview_answers').insert({
-      question,
-      answer_notes: null,
-      confidence: null,
-      last_practiced: null,
-      practice_count: 0,
-    })
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
+    const { error } = await supabase
+      .from('english_interview_answers')
+      .insert({
+        user_id: user.id,
+        question,
+        answer_notes: null,
+        confidence: null,
+        last_practiced: null,
+        practice_count: 0,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[InterviewAnswerCards] add question failed', { userId: user.id, question, error })
+      setSaveError(`Could not add question: ${error.message}`)
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setShowAddForm(false)
     setNewQuestion('')

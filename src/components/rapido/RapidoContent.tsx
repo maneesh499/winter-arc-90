@@ -24,6 +24,7 @@ export function RapidoContent({ today, entries, monthStats, userId }: RapidoCont
     notes: '',
   })
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const router = useRouter()
   const [, startTransition] = useTransition()
   const refresh = () => startTransition(() => router.refresh())
@@ -34,16 +35,37 @@ export function RapidoContent({ today, entries, monthStats, userId }: RapidoCont
   const handleSave = async () => {
     if (!form.gross_earnings || !form.hours) return
     setSaving(true)
-    await supabase.from('rapido_entries').insert({
-      date: form.date,
-      hours: Number(form.hours),
-      rides: Number(form.rides || 0),
-      distance_km: form.distance_km ? Number(form.distance_km) : null,
-      gross_earnings: Number(form.gross_earnings),
-      fuel_cost: Number(form.fuel_cost || 0),
-      net_earnings: netEarnings,
-      notes: form.notes || null,
-    })
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh and try again.')
+      setSaving(false)
+      return
+    }
+
+    // IMPORTANT: Do NOT include net_earnings — it's a GENERATED ALWAYS column in PostgreSQL.
+    // The database computes it automatically as (gross_earnings - fuel_cost).
+    const { error } = await supabase
+      .from('rapido_entries')
+      .upsert({
+        user_id: user.id,
+        date: form.date,
+        hours: Number(form.hours),
+        rides: Number(form.rides || 0),
+        distance_km: form.distance_km ? Number(form.distance_km) : null,
+        gross_earnings: Number(form.gross_earnings),
+        fuel_cost: Number(form.fuel_cost || 0),
+        notes: form.notes || null,
+      }, { onConflict: 'user_id,date' })
+
+    if (error) {
+      console.error('[RapidoContent] upsert failed', { userId: user.id, date: form.date, error })
+      setSaveError(`Could not save entry: ${error.message}`)
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setShowForm(false)
     setForm({ date: today, hours: '', rides: '', distance_km: '', gross_earnings: '', fuel_cost: '', notes: '' })
@@ -160,12 +182,12 @@ export function RapidoContent({ today, entries, monthStats, userId }: RapidoCont
           {(form.gross_earnings || form.fuel_cost) && (
             <div className="bg-secondary/50 rounded-xl px-4 py-2.5">
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Net earnings</span>
+                <span className="text-muted-foreground">Net earnings (auto-calculated)</span>
                 <span className={`font-bold ${netEarnings >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                   {formatCurrency(netEarnings)}
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">Gross - Fuel = Net</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Gross - Fuel = Net (computed by database)</p>
             </div>
           )}
 
@@ -173,12 +195,22 @@ export function RapidoContent({ today, entries, monthStats, userId }: RapidoCont
             placeholder="Notes…" rows={2}
             className="w-full bg-secondary border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none" />
 
+          {saveError && (
+            <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+              ⚠️ {saveError}
+            </p>
+          )}
+
           <div className="flex gap-2">
-            <button onClick={handleSave} disabled={saving}
-              className="flex-1 bg-primary text-primary-foreground font-bold py-2 rounded-xl text-sm disabled:opacity-50">
+            <button
+              id="rapido-save"
+              onClick={handleSave}
+              disabled={saving || !form.gross_earnings || !form.hours}
+              className="flex-1 bg-primary text-primary-foreground font-bold py-2 rounded-xl text-sm disabled:opacity-50"
+            >
               {saving ? 'Saving…' : 'Save'}
             </button>
-            <button onClick={() => setShowForm(false)}
+            <button onClick={() => { setShowForm(false); setSaveError(null) }}
               className="px-4 py-2 bg-secondary text-foreground rounded-xl text-sm border border-border">Cancel</button>
           </div>
         </div>

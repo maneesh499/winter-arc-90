@@ -16,19 +16,38 @@ const QUICK_AMOUNTS = [250, 500, 750, 1000]
 export function WaterTracker({ totalMl, target, date, onUpdate }: WaterTrackerProps) {
   const [saving, setSaving] = useState(false)
   const [current, setCurrent] = useState(totalMl)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const supabase = createClient()
 
   const percentage = Math.min(100, Math.round((current / target) * 100))
 
   const addWater = async (ml: number) => {
     setSaving(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    setSaveError(null)
 
-    await supabase.from('water_logs').insert({
-      user_id: user!.id,
-      date,
-      amount_ml: ml,
-    })
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Auth error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
+    const { error } = await supabase
+      .from('water_logs')
+      .insert({
+        user_id: user.id,
+        date,
+        amount_ml: ml,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[WaterTracker] insert failed', { userId: user.id, date, ml, error })
+      setSaveError('Could not log water. Please try again.')
+      setSaving(false)
+      return
+    }
 
     setCurrent((prev) => prev + ml)
     setSaving(false)
@@ -92,6 +111,12 @@ export function WaterTracker({ totalMl, target, date, onUpdate }: WaterTrackerPr
             💧 Hydration goal complete!
           </p>
         </div>
+      )}
+
+      {saveError && (
+        <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+          ⚠️ {saveError}
+        </p>
       )}
     </div>
   )

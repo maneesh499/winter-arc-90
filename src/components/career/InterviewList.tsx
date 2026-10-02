@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { getTodayIST } from '@/lib/dates'
 
 const INTERVIEW_TOPICS = [
   'SQL', 'Python', 'PySpark', 'Databricks', 'ADF', 'Azure',
@@ -20,7 +21,7 @@ export function InterviewList({ interviews, onUpdate }: InterviewListProps) {
   const [form, setForm] = useState({
     company: '',
     role: '',
-    date: new Date().toISOString().split('T')[0],
+    date: getTodayIST(), // IST-safe, not new Date().toISOString()
     round: 'L1',
     topics: [] as string[],
     questions: '',
@@ -28,6 +29,7 @@ export function InterviewList({ interviews, onUpdate }: InterviewListProps) {
     status: 'scheduled' as const,
   })
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const supabase = createClient()
 
   const toggleTopic = (t: string) => {
@@ -40,10 +42,32 @@ export function InterviewList({ interviews, onUpdate }: InterviewListProps) {
   const handleSave = async () => {
     if (!form.company || !form.role) return
     setSaving(true)
-    await supabase.from('interviews').insert({
-      ...form,
-      topics: form.topics,
-    })
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
+    const { error } = await supabase
+      .from('interviews')
+      .insert({
+        user_id: user.id,
+        ...form,
+        topics: form.topics,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[InterviewList] insert failed', { userId: user.id, company: form.company, error })
+      setSaveError(`Could not save interview: ${error.message}`)
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setShowForm(false)
     onUpdate()

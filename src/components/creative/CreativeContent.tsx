@@ -60,6 +60,7 @@ export function CreativeContent({
   })
   const [sForm, setSForm] = useState({ activity: '', minutes: 30, project_id: '', notes: '' })
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const router = useRouter()
   const [, startTransition] = useTransition()
   const refresh = () => startTransition(() => router.refresh())
@@ -68,11 +69,39 @@ export function CreativeContent({
   const handleSaveProject = async () => {
     if (!pForm.title) return
     setSaving(true)
-    if (selectedProject?.id) {
-      await supabase.from('creative_projects').update(pForm).eq('id', selectedProject.id)
-    } else {
-      await supabase.from('creative_projects').insert(pForm)
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh.')
+      setSaving(false)
+      return
     }
+
+    let error
+    if (selectedProject?.id) {
+      const result = await supabase
+        .from('creative_projects')
+        .update({ ...pForm, user_id: user.id })
+        .eq('id', selectedProject.id)
+        .eq('user_id', user.id)
+      error = result.error
+    } else {
+      const result = await supabase
+        .from('creative_projects')
+        .insert({ ...pForm, user_id: user.id })
+        .select()
+        .single()
+      error = result.error
+    }
+
+    if (error) {
+      console.error('[CreativeContent] project save failed', { userId: user.id, title: pForm.title, error })
+      setSaveError(`Could not save project: ${error.message}`)
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setShowProjectForm(false)
     setSelectedProject(null)
@@ -83,13 +112,35 @@ export function CreativeContent({
   const handleSaveSession = async () => {
     if (!sForm.activity || sForm.minutes <= 0) return
     setSaving(true)
-    await supabase.from('creative_sessions').insert({
-      date: today,
-      activity: sForm.activity,
-      minutes: sForm.minutes,
-      project_id: sForm.project_id || null,
-      notes: sForm.notes || null,
-    })
+    setSaveError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setSaveError('Authentication error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
+    const { error } = await supabase
+      .from('creative_sessions')
+      .insert({
+        user_id: user.id,
+        date: today,
+        activity: sForm.activity,
+        minutes: sForm.minutes,
+        project_id: sForm.project_id || null,
+        notes: sForm.notes || null,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[CreativeContent] session insert failed', { userId: user.id, date: today, activity: sForm.activity, error })
+      setSaveError(`Could not save session: ${error.message}`)
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setShowSessionForm(false)
     setSForm({ activity: '', minutes: 30, project_id: '', notes: '' })

@@ -46,6 +46,7 @@ export function FinanceContent({
   const [showExpenseForm, setShowExpenseForm] = useState(false)
   const [expForm, setExpForm] = useState({ amount: '', category: 'food', description: '', date: today })
   const [saving, setSaving] = useState(false)
+  const [expenseError, setExpenseError] = useState<string | null>(null)
   const router = useRouter()
   const [, startTransition] = useTransition()
   const refresh = () => startTransition(() => router.refresh())
@@ -54,12 +55,34 @@ export function FinanceContent({
   const handleAddExpense = async () => {
     if (!expForm.amount || Number(expForm.amount) <= 0) return
     setSaving(true)
-    await supabase.from('expenses').insert({
-      date: expForm.date,
-      category: expForm.category,
-      amount: Number(expForm.amount),
-      description: expForm.description || null,
-    })
+    setExpenseError(null)
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      setExpenseError('Authentication error. Please refresh.')
+      setSaving(false)
+      return
+    }
+
+    const { error } = await supabase
+      .from('expenses')
+      .insert({
+        user_id: user.id,
+        date: expForm.date,
+        category: expForm.category,
+        amount: Number(expForm.amount),
+        description: expForm.description || null,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[FinanceContent] expense insert failed', { userId: user.id, amount: expForm.amount, error })
+      setExpenseError(`Could not save expense: ${error.message}`)
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setExpForm({ amount: '', category: 'food', description: '', date: today })
     setShowExpenseForm(false)
@@ -230,15 +253,21 @@ export function FinanceContent({
                 placeholder="Description (optional)"
                 className="w-full bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
+              {expenseError && (
+                <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+                  ⚠️ {expenseError}
+                </p>
+              )}
               <div className="flex gap-2">
                 <button
+                  id="expense-save"
                   onClick={handleAddExpense}
                   disabled={saving}
                   className="flex-1 bg-primary text-primary-foreground font-bold py-2 rounded-xl text-sm disabled:opacity-50"
                 >
                   {saving ? 'Saving…' : 'Save'}
                 </button>
-                <button onClick={() => setShowExpenseForm(false)} className="px-4 py-2 bg-secondary text-foreground rounded-xl text-sm border border-border">
+                <button onClick={() => { setShowExpenseForm(false); setExpenseError(null) }} className="px-4 py-2 bg-secondary text-foreground rounded-xl text-sm border border-border">
                   Cancel
                 </button>
               </div>

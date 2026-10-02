@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getTodayIST } from '@/lib/dates'
+import { getTodayIST, getISTMonthBounds } from '@/lib/dates'
 import { RapidoContent } from '@/components/rapido/RapidoContent'
 import type { Metadata } from 'next'
 
@@ -10,8 +10,8 @@ export default async function RapidoPage() {
   const { data: { user } } = await supabase.auth.getUser()
   const today = getTodayIST()
 
-  const now = new Date()
-  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  // Use IST-safe month bounds (not new Date().toISOString() which gives UTC)
+  const { monthStart } = getISTMonthBounds()
 
   const [{ data: entries }, { data: monthEntries }] = await Promise.all([
     supabase.from('rapido_entries').select('*').eq('user_id', user!.id)
