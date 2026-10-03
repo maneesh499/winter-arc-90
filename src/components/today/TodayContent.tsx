@@ -10,6 +10,8 @@ import { GymLogger } from './GymLogger'
 import { DailyReviewForm } from './DailyReviewForm'
 import { DailyPlanForm } from './DailyPlanForm'
 import type { Habit, HabitLog, GymLog, WaterLog, DailyReview, DailyPlan } from '@/types'
+import type { DailyState } from '@/lib/daily-state'
+import { getStatusColor, getStatusIcon, getStatusLabel } from '@/lib/daily-state'
 
 interface TodayContentProps {
   today: string
@@ -24,6 +26,7 @@ interface TodayContentProps {
   review: DailyReview | null
   plan: DailyPlan | null
   userId: string
+  dailyState: DailyState
 }
 
 type TabId = 'habits' | 'health' | 'review' | 'plan'
@@ -48,6 +51,7 @@ export function TodayContent({
   review,
   plan,
   userId,
+  dailyState,
 }: TodayContentProps) {
   const [activeTab, setActiveTab] = useState<TabId>('habits')
   const router = useRouter()
@@ -62,6 +66,7 @@ export function TodayContent({
   // Group habits by category
   const categories = [
     { id: 'discipline', label: 'DISCIPLINE', icon: '🔥' },
+    { id: 'health', label: 'HEALTH', icon: '❤️' },
     { id: 'career', label: 'CAREER', icon: '💼' },
     { id: 'english', label: 'ENGLISH', icon: '🗣️' },
     { id: 'productivity', label: 'PRODUCTIVITY', icon: '⚡' },
@@ -71,12 +76,12 @@ export function TodayContent({
 
   const logMap = new Map(habitLogs.map((l) => [l.habit_id, l]))
 
-  // Completed count
-  const mandatory = habits.filter((h) => !h.is_optional)
-  const completed = mandatory.filter((h) => {
-    const log = logMap.get(h.id)
-    return log?.status === 'kept' || log?.status === 'recovery'
-  }).length
+  // Use DailyState for completed count — accurate count from live state
+  const mandatory = dailyState.habits.filter(h => !h.isOptional)
+  const completed = mandatory.filter(h => h.status === 'completed' || h.status === 'recovery').length
+
+  // Score from DailyState
+  const score = dailyState.score
 
   return (
     <div className="space-y-6 animate-slide-up">
@@ -93,24 +98,96 @@ export function TodayContent({
           {formatDate(today, 'MMMM d, yyyy')}
         </h1>
 
+        {/* Score + Progress */}
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="bg-secondary/50 rounded-xl px-3 py-2">
+            <p className="text-xs text-muted-foreground">Daily Score</p>
+            <p className="text-xl font-black text-foreground">{score.total} <span className="text-xs font-normal text-muted-foreground">/ 100</span></p>
+          </div>
+          <div className="bg-secondary/50 rounded-xl px-3 py-2">
+            <p className="text-xs text-muted-foreground">Habits Done</p>
+            <p className="text-xl font-black text-foreground">{completed} <span className="text-xs font-normal text-muted-foreground">/ {mandatory.length}</span></p>
+          </div>
+        </div>
+
         {/* Completion bar */}
         <div className="mt-3 space-y-1">
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>Habits</span>
-            <span className="font-semibold text-foreground">
-              {completed} / {mandatory.length}
-            </span>
-          </div>
           <div className="arc-progress">
             <div
               className="arc-progress-fill"
               style={{
-                width: mandatory.length > 0
-                  ? `${(completed / mandatory.length) * 100}%`
-                  : '0%',
+                width: mandatory.length > 0 ? `${(completed / mandatory.length) * 100}%` : '0%',
               }}
             />
           </div>
+          {score.pendingActivities > 0 && (
+            <p className="text-xs text-muted-foreground">{score.pendingActivities} items not yet logged</p>
+          )}
+        </div>
+      </div>
+
+      {/* Quick Status Summary */}
+      <div className="arc-card space-y-2">
+        <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Today's State</p>
+        <div className="grid grid-cols-2 gap-2">
+          {/* Gym */}
+          <div className="flex items-center gap-2 text-sm">
+            <span>{getStatusIcon(dailyState.gym.status)}</span>
+            <span className="text-foreground font-medium">Gym</span>
+            <span className={cn('text-xs ml-auto', getStatusColor(dailyState.gym.status))}>
+              {getStatusLabel(dailyState.gym.status)}
+            </span>
+          </div>
+          {/* Water */}
+          <div className="flex items-center gap-2 text-sm">
+            <span>{getStatusIcon(dailyState.water.status)}</span>
+            <span className="text-foreground font-medium">Water</span>
+            <span className={cn('text-xs ml-auto', getStatusColor(dailyState.water.status))}>
+              {dailyState.water.totalMl > 0
+                ? `${(dailyState.water.totalMl / 1000).toFixed(1)}L`
+                : 'Not logged'}
+            </span>
+          </div>
+          {/* Career */}
+          <div className="flex items-center gap-2 text-sm">
+            <span>{getStatusIcon(dailyState.career.status)}</span>
+            <span className="text-foreground font-medium">Career</span>
+            <span className={cn('text-xs ml-auto', getStatusColor(dailyState.career.status))}>
+              {dailyState.career.totalMinutes > 0
+                ? `${dailyState.career.totalMinutes}m`
+                : 'Not started'}
+            </span>
+          </div>
+          {/* English */}
+          <div className="flex items-center gap-2 text-sm">
+            <span>{getStatusIcon(dailyState.english.status)}</span>
+            <span className="text-foreground font-medium">English</span>
+            <span className={cn('text-xs ml-auto', getStatusColor(dailyState.english.status))}>
+              {dailyState.english.totalMinutes > 0
+                ? `${dailyState.english.totalMinutes}m`
+                : 'Not started'}
+            </span>
+          </div>
+          {/* Reading */}
+          <div className="flex items-center gap-2 text-sm">
+            <span>{getStatusIcon(dailyState.reading.status)}</span>
+            <span className="text-foreground font-medium">Reading</span>
+            <span className={cn('text-xs ml-auto', getStatusColor(dailyState.reading.status))}>
+              {dailyState.reading.pagesRead > 0
+                ? `${dailyState.reading.pagesRead}p`
+                : 'Not logged'}
+            </span>
+          </div>
+          {/* Rapido */}
+          {dailyState.rapido.logged && (
+            <div className="flex items-center gap-2 text-sm">
+              <span>🟢</span>
+              <span className="text-foreground font-medium">Rapido</span>
+              <span className="text-xs ml-auto text-green-400">
+                ₹{dailyState.rapido.netEarnings}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -161,6 +238,39 @@ export function TodayContent({
             )
           })}
 
+          {/* Standalone quick logs for Career, English, Reading (these are tracked separately) */}
+          <div className="arc-card space-y-3">
+            <p className="section-header">📊 Session Summary</p>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Career sessions</span>
+                <span className={cn('font-bold', getStatusColor(dailyState.career.status))}>
+                  {dailyState.career.totalMinutes}m / {dailyState.career.targetMinutes}m
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">English practice</span>
+                <span className={cn('font-bold', getStatusColor(dailyState.english.status))}>
+                  {dailyState.english.totalMinutes}m / {dailyState.english.targetMinutes}m
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Reading</span>
+                <span className={cn('font-bold', getStatusColor(dailyState.reading.status))}>
+                  {dailyState.reading.pagesRead}p / {dailyState.reading.targetPages}p
+                </span>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-2">
+              <a href="/dashboard/career" className="flex-1 text-center text-xs font-semibold py-2 rounded-xl bg-secondary border border-border hover:border-primary/30 hover:text-primary transition-colors">
+                + Career
+              </a>
+              <a href="/dashboard/english" className="flex-1 text-center text-xs font-semibold py-2 rounded-xl bg-secondary border border-border hover:border-primary/30 hover:text-primary transition-colors">
+                + English
+              </a>
+            </div>
+          </div>
+
           {habits.length === 0 && (
             <div className="text-center py-10 space-y-3">
               <p className="text-4xl">📋</p>
@@ -186,6 +296,24 @@ export function TodayContent({
             date={today}
             onUpdate={refresh}
           />
+
+          {/* Sleep summary */}
+          {dailyState.sleep.status !== 'not_logged' && (
+            <div className="arc-card space-y-2">
+              <p className="section-header">😴 Sleep</p>
+              <div className="flex items-baseline gap-2">
+                <span className={cn('font-bold', getStatusColor(dailyState.sleep.status))}>
+                  {dailyState.sleep.durationMinutes != null
+                    ? `${Math.floor(dailyState.sleep.durationMinutes / 60)}h ${dailyState.sleep.durationMinutes % 60}m`
+                    : 'Logged'}
+                </span>
+                <span className="text-muted-foreground text-sm">/ {dailyState.sleep.targetHours}h target</span>
+              </div>
+              <a href="/dashboard/health" className="text-xs text-primary font-semibold hover:underline">
+                Edit sleep log →
+              </a>
+            </div>
+          )}
         </div>
       )}
 
@@ -203,6 +331,14 @@ export function TodayContent({
           date={today}
           onUpdate={refresh}
         />
+      )}
+
+      {isPending && (
+        <div className="fixed bottom-20 left-0 right-0 flex justify-center z-50">
+          <div className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-2 rounded-full shadow-lg">
+            Refreshing...
+          </div>
+        </div>
       )}
     </div>
   )

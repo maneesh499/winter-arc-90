@@ -2,40 +2,19 @@
 
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
-import { PROGRAM_DAYS, formatDate, formatTime } from '@/lib/dates'
+import { PROGRAM_DAYS, formatDate } from '@/lib/dates'
 import Link from 'next/link'
+import type { DailyState, AttentionItem } from '@/lib/daily-state'
+import { getStatusColor, getStatusBg, getStatusIcon } from '@/lib/daily-state'
 
 interface CommandCenterProps {
   today: string
   dayNumber: number | null
-  profile: any
-  metrics: any
-  habitLogs: any[]
-  sleep: any
-  wake: any
-  waterTotal: number
-  gym: any
-  careerMinutes: number
-  englishMinutes: number
-  plan: any
-  review: any
+  profile: { display_name?: string | null } | null
+  dailyState: DailyState
 }
 
-export function CommandCenter({
-  today,
-  dayNumber,
-  profile,
-  metrics,
-  habitLogs,
-  sleep,
-  wake,
-  waterTotal,
-  gym,
-  careerMinutes,
-  englishMinutes,
-  plan,
-  review
-}: CommandCenterProps) {
+export function CommandCenter({ today, dayNumber, profile, dailyState }: CommandCenterProps) {
   const [currentTime, setCurrentTime] = useState(new Date())
 
   useEffect(() => {
@@ -45,176 +24,99 @@ export function CommandCenter({
 
   const hour = currentTime.getHours()
   const name = profile?.display_name?.split(' ')[0] || 'Champion'
-  const score = metrics?.total_score ?? 0
+  const { score, attention, nextAction, water, gym, career, english, reading, sleep, rapido, expenses, habits, review } = dailyState
 
-  // 1. Time-Aware Mode
+  // Time-Aware Mode
   let modeName = 'DAY MODE'
   if (hour >= 5 && hour < 9) modeName = 'MORNING MODE'
   else if (hour >= 9 && hour < 17) modeName = 'WORK MODE'
   else if (hour >= 17 && hour < 21) modeName = 'CAREER MODE'
   else if (hour >= 21 || hour < 5) modeName = 'REVIEW MODE'
-
-  // If weekend
   const isWeekend = currentTime.getDay() === 0 || currentTime.getDay() === 6
   if (isWeekend && hour >= 9 && hour < 18) modeName = 'BUILD MODE'
 
-  // 2. Smart Status
+  // Score status label
   const getSmartStatus = () => {
-    if (score >= 80) return { label: 'Strong', color: 'text-green-400' }
-    if (score >= 60) return { label: 'Good', color: 'text-blue-400' }
-    if (score >= 40) return { label: 'Average', color: 'text-yellow-400' }
-    if (score > 0) return { label: 'Needs Attention', color: 'text-orange-400' }
+    if (score.pendingActivities > 0 && score.total === 0) return { label: 'Day in Progress', color: 'text-muted-foreground' }
+    if (score.total >= 80) return { label: 'Strong', color: 'text-green-400' }
+    if (score.total >= 60) return { label: 'Good', color: 'text-blue-400' }
+    if (score.total >= 40) return { label: 'Average', color: 'text-yellow-400' }
+    if (score.total > 0) return { label: 'Needs Attention', color: 'text-orange-400' }
     return { label: 'Day in Progress', color: 'text-muted-foreground' }
   }
-  const status = getSmartStatus()
+  const smartStatus = getSmartStatus()
 
-  // 3. Attention Center & Priority Engine
-  const alerts: { level: 'high' | 'medium' | 'ontrack', title: string, desc: string, action: string, href: string }[] = []
-  const onTrack: string[] = []
-
-  // Water Intelligence
-  const waterTarget = 2500 // Can be from profile in future
-  if (waterTotal < waterTarget) {
-    const remaining = waterTarget - waterTotal
-    alerts.push({
-      level: remaining > 1000 && hour > 15 ? 'high' : 'medium',
-      title: 'Water',
-      desc: `${(waterTotal / 1000).toFixed(1)}L / ${(waterTarget / 1000).toFixed(1)}L`,
-      action: 'Log Water',
-      href: '/dashboard/health'
-    })
-  } else {
-    onTrack.push('Water target complete')
-  }
-
-  // Sleep Intelligence (basic diff)
-  if (sleep && sleep.bedtime && sleep.wake_time) {
-    // Basic duration calc if implemented
-  } else if (!sleep) {
-    alerts.push({
-      level: hour < 12 ? 'high' : 'medium',
-      title: 'Sleep',
-      desc: 'No sleep logged for last night',
-      action: 'Log Sleep',
-      href: '/dashboard/health'
-    })
-  }
-
-  // Gym Intelligence
-  if (!gym) {
-    alerts.push({
-      level: hour > 18 ? 'high' : 'medium',
-      title: 'Gym',
-      desc: 'Not completed today',
-      action: 'Mark Status',
-      href: '/dashboard/health'
-    })
-  } else if (gym.status === 'completed') {
-    onTrack.push('Workout logged')
-  } else if (gym.status === 'missed') {
-    onTrack.push('Gym missed')
-  } else if (gym.status === 'recovery') {
-    onTrack.push('Recovery day active')
-  }
-
-  // Career Intelligence
-  const careerTarget = 90
-  if (careerMinutes === 0) {
-    alerts.push({
-      level: hour > 18 ? 'high' : 'medium',
-      title: 'Career',
-      desc: '0m logged today',
-      action: 'Start Session',
-      href: '/dashboard/career'
-    })
-  } else if (careerMinutes < careerTarget) {
-    alerts.push({
-      level: 'medium',
-      title: 'Career',
-      desc: `${careerTarget - careerMinutes}m remaining`,
-      action: 'Continue',
-      href: '/dashboard/career'
-    })
-  } else {
-    onTrack.push('Career target complete')
-  }
-
-  // English Intelligence
-  const englishTarget = 20
-  if (englishMinutes === 0) {
-    alerts.push({
-      level: 'medium',
-      title: 'English',
-      desc: 'Not started',
-      action: 'Start Session',
-      href: '/dashboard/english'
-    })
-  } else if (englishMinutes < englishTarget) {
-    alerts.push({
-      level: 'medium',
-      title: 'English',
-      desc: `${englishTarget - englishMinutes}m remaining`,
-      action: 'Practice',
-      href: '/dashboard/english'
-    })
-  } else {
-    onTrack.push('English target complete')
-  }
-
-  // Reading Intelligence (via habit logs)
-  const readingLog = habitLogs.find(l => l.habits?.name.toLowerCase().includes('reading'))
-  if (!readingLog || (readingLog.status !== 'kept' && (readingLog.value || 0) < 3)) {
-    alerts.push({
-      level: 'medium',
-      title: 'Reading',
-      desc: readingLog ? `${readingLog.value || 0} / 3 pages` : '0 / 3 pages',
-      action: 'Log Reading',
-      href: '/dashboard'
-    })
-  } else {
-    onTrack.push('Reading complete')
-  }
-
-  // Top 3
-  if (plan && (plan.top_1 || plan.top_2 || plan.top_3)) {
-    // We would need to track completion of these. Since we don't have a completion status on daily_plans,
-    // we just show them as a focus.
-  }
-
-  // Determine Next Action
-  const sortedAlerts = [...alerts].sort((a, b) => a.level === 'high' ? -1 : 1)
-  const nextAction = sortedAlerts[0]
+  // Split attention: pending vs complete
+  const pendingItems = attention.filter(a => a.level !== 'complete')
+  const completeItems = attention.filter(a => a.level === 'complete')
 
   return (
     <div className="space-y-6 animate-slide-up pb-24">
+
       {/* 1. STATUS HEADER */}
       <div>
         <p className="text-muted-foreground text-sm font-medium uppercase tracking-widest">{modeName}</p>
         <h1 className="text-3xl font-black text-foreground mt-1">WINTER ARC 90</h1>
         <div className="flex items-center gap-3 mt-1">
           <span className="day-counter">
-            DAY {dayNumber} / {PROGRAM_DAYS}
+            DAY {dayNumber ?? '—'} / {PROGRAM_DAYS}
           </span>
           <span className="text-muted-foreground text-xs">·</span>
           <span className="text-muted-foreground text-xs">{formatDate(today, 'MMM d')}</span>
         </div>
       </div>
 
+      {/* 2. SCORE + STATUS */}
       <div className="grid grid-cols-2 gap-4">
         <div className="arc-card flex flex-col justify-center">
           <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold mb-1">Daily Score</p>
           <div className="flex items-baseline gap-1">
-            <span className="text-4xl font-black text-foreground">{score}</span>
+            <span className="text-4xl font-black text-foreground">{score.total}</span>
             <span className="text-sm text-muted-foreground font-bold">/ 100</span>
           </div>
+          {score.pendingActivities > 0 && (
+            <p className="text-xs text-muted-foreground mt-1">{score.pendingActivities} not logged</p>
+          )}
         </div>
         <div className="arc-card flex flex-col justify-center">
           <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold mb-1">Status</p>
-          <p className={`text-xl font-bold ${status.color}`}>{status.label}</p>
+          <p className={`text-xl font-bold ${smartStatus.color}`}>{smartStatus.label}</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {score.completedActivities} / {score.totalActivities} done
+          </p>
         </div>
       </div>
 
-      {/* 2. NEXT ACTION (What Should I Do Now?) */}
+      {/* 3. SCORE BREAKDOWN */}
+      <div className="arc-card space-y-2">
+        <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Score Breakdown</p>
+        <div className="space-y-1.5">
+          {[
+            { label: 'Discipline', value: score.discipline, weight: 20 },
+            { label: 'Health', value: score.health, weight: 20 },
+            { label: 'Career', value: score.career, weight: 25 },
+            { label: 'English', value: score.english, weight: 10 },
+            { label: 'Creative', value: score.creative, weight: 5 },
+            { label: 'Productivity', value: score.productivity, weight: 15 },
+          ].map((cat) => (
+            <div key={cat.label} className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground w-20 shrink-0">{cat.label}</span>
+              <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all duration-500',
+                    cat.value >= 80 ? 'bg-green-500' : cat.value >= 50 ? 'bg-yellow-500' : cat.value > 0 ? 'bg-orange-500' : 'bg-secondary'
+                  )}
+                  style={{ width: `${cat.value}%` }}
+                />
+              </div>
+              <span className="text-xs font-bold text-foreground w-8 text-right">{cat.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 4. NEXT ACTION */}
       {nextAction && (
         <div className="arc-card border-primary/30 relative overflow-hidden group">
           <div className="absolute inset-0 bg-primary/5 group-hover:bg-primary/10 transition-colors" />
@@ -223,7 +125,7 @@ export function CommandCenter({
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xl font-bold text-foreground">{nextAction.title}</p>
-                <p className="text-sm text-muted-foreground mt-0.5">{nextAction.desc}</p>
+                <p className="text-sm text-muted-foreground mt-0.5">{nextAction.description}</p>
               </div>
               <Link
                 href={nextAction.href}
@@ -236,92 +138,224 @@ export function CommandCenter({
         </div>
       )}
 
-      {/* 3. ATTENTION CENTER */}
-      {alerts.length > 0 && (
+      {/* 5. TODAY'S ACTIVITIES — Full State View */}
+      <div className="space-y-3">
+        <p className="section-header">Today's Activities</p>
+
+        {/* Gym */}
+        <ActivityRow
+          icon="💪"
+          label="Gym"
+          status={gym.status === 'not_logged' ? 'not_logged' : gym.status === 'completed' ? 'completed' : gym.status === 'missed' ? 'missed' : 'recovery'}
+          description={
+            gym.status === 'completed'
+              ? gym.workoutType ? `${gym.workoutType}${gym.durationMinutes ? ` · ${gym.durationMinutes}m` : ''}` : 'Completed'
+              : gym.status === 'missed' ? 'Missed'
+              : gym.status === 'recovery' ? 'Recovery day'
+              : 'Not logged'
+          }
+          href="/dashboard/health"
+          actionLabel="Log"
+        />
+
+        {/* Water */}
+        <ActivityRow
+          icon="💧"
+          label="Water"
+          status={water.status}
+          description={
+            water.status === 'completed'
+              ? `${(water.totalMl / 1000).toFixed(1)}L / ${(water.targetMl / 1000).toFixed(1)}L ✓`
+              : water.status === 'partial'
+              ? `${(water.totalMl / 1000).toFixed(1)}L / ${(water.targetMl / 1000).toFixed(1)}L`
+              : `0 / ${(water.targetMl / 1000).toFixed(1)}L`
+          }
+          href="/dashboard/today"
+          actionLabel="Log Water"
+          progress={water.status !== 'not_logged' ? water.percentage : undefined}
+        />
+
+        {/* Career */}
+        <ActivityRow
+          icon="💼"
+          label={`Career`}
+          status={career.status}
+          description={
+            career.status === 'completed'
+              ? `${career.totalMinutes} / ${career.targetMinutes} min ✓`
+              : career.status === 'partial'
+              ? `${career.totalMinutes} / ${career.targetMinutes} min`
+              : `0 / ${career.targetMinutes} min`
+          }
+          href="/dashboard/career"
+          actionLabel="Log Session"
+          progress={career.status !== 'not_logged' ? career.percentage : undefined}
+        />
+
+        {/* English */}
+        <ActivityRow
+          icon="🗣️"
+          label="English"
+          status={english.status}
+          description={
+            english.status === 'completed'
+              ? `${english.totalMinutes} / ${english.targetMinutes} min ✓`
+              : english.status === 'partial'
+              ? `${english.totalMinutes} / ${english.targetMinutes} min`
+              : `Not started`
+          }
+          href="/dashboard/english"
+          actionLabel="Practice"
+          progress={english.status !== 'not_logged' ? english.percentage : undefined}
+        />
+
+        {/* Reading */}
+        <ActivityRow
+          icon="📚"
+          label="Reading"
+          status={reading.status}
+          description={
+            reading.status === 'completed'
+              ? `${reading.pagesRead} / ${reading.targetPages} pages ✓`
+              : reading.status === 'partial'
+              ? `${reading.pagesRead} / ${reading.targetPages} pages`
+              : `0 / ${reading.targetPages} pages`
+          }
+          href="/dashboard/today"
+          actionLabel="Log Reading"
+          progress={reading.status !== 'not_logged' ? reading.percentage : undefined}
+        />
+
+        {/* Sleep */}
+        <ActivityRow
+          icon="😴"
+          label="Sleep"
+          status={sleep.status}
+          description={
+            sleep.status === 'not_logged'
+              ? 'Not logged'
+              : sleep.durationMinutes != null
+              ? `${Math.floor(sleep.durationMinutes / 60)}h ${sleep.durationMinutes % 60}m / ${sleep.targetHours}h`
+              : 'Partially entered'
+          }
+          href="/dashboard/health"
+          actionLabel="Log Sleep"
+        />
+
+        {/* Discipline habits */}
+        {habits.filter(h => h.category === 'discipline' && !h.isOptional).map(habit => (
+          <ActivityRow
+            key={habit.id}
+            icon="🔥"
+            label={habit.name}
+            status={habit.status}
+            description={
+              habit.status === 'completed' ? 'Kept'
+              : habit.status === 'missed' ? 'Failed'
+              : habit.status === 'partial' ? 'Partial'
+              : habit.status === 'recovery' ? 'Recovery'
+              : 'Not logged'
+            }
+            href="/dashboard/today"
+            actionLabel="Log"
+          />
+        ))}
+
+        {/* Daily Review */}
+        <ActivityRow
+          icon="📝"
+          label="Daily Review"
+          status={review.status}
+          description={
+            review.status === 'completed' ? 'Review completed'
+            : review.status === 'partial' ? 'Partially done'
+            : 'Not completed'
+          }
+          href="/dashboard/today"
+          actionLabel="Write Review"
+        />
+
+        {/* Rapido (optional) */}
+        {rapido.logged && (
+          <div className="flex items-center justify-between p-4 rounded-xl border bg-secondary/30 border-border">
+            <div className="flex items-center gap-3">
+              <span className="text-lg">🛵</span>
+              <div>
+                <p className="text-sm font-bold text-foreground">Rapido</p>
+                <p className="text-xs text-muted-foreground">
+                  ₹{rapido.netEarnings} net · {rapido.hours}h · {rapido.rides} rides
+                </p>
+              </div>
+            </div>
+            <span className="text-xs font-semibold px-2 py-1 rounded-lg bg-secondary text-muted-foreground border border-border">
+              Optional
+            </span>
+          </div>
+        )}
+
+        {/* Expenses */}
+        {expenses.totalAmount > 0 && (
+          <div className="flex items-center justify-between p-4 rounded-xl border bg-secondary/30 border-border">
+            <div className="flex items-center gap-3">
+              <span className="text-lg">💸</span>
+              <div>
+                <p className="text-sm font-bold text-foreground">Expenses</p>
+                <p className="text-xs text-muted-foreground">₹{expenses.totalAmount} today</p>
+              </div>
+            </div>
+            <Link href="/dashboard/finance" className="text-xs text-primary font-semibold hover:underline">
+              View →
+            </Link>
+          </div>
+        )}
+      </div>
+
+      {/* 6. ATTENTION REQUIRED */}
+      {pendingItems.length > 0 && pendingItems.filter(a => a.id !== nextAction?.id).length > 0 && (
         <div className="space-y-3">
           <p className="section-header">Attention Required</p>
           <div className="grid gap-2">
-            {alerts.filter(a => a !== nextAction).map((alert, i) => (
-              <div key={i} className={cn(
-                "flex items-center justify-between p-4 rounded-xl border",
-                alert.level === 'high' ? 'bg-red-500/5 border-red-500/20' : 'bg-secondary border-border'
-              )}>
-                <div className="flex items-center gap-3">
-                  <div className={cn(
-                    "w-2 h-2 rounded-full",
-                    alert.level === 'high' ? 'bg-red-500' : 'bg-yellow-500'
-                  )} />
-                  <div>
-                    <p className="text-sm font-bold text-foreground">{alert.title}</p>
-                    <p className="text-xs text-muted-foreground">{alert.desc}</p>
+            {pendingItems
+              .filter(a => a.id !== nextAction?.id)
+              .map((alert) => (
+                <div key={alert.id} className={cn(
+                  "flex items-center justify-between p-4 rounded-xl border",
+                  alert.level === 'high' ? 'bg-red-500/5 border-red-500/20' : 'bg-secondary border-border'
+                )}>
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "w-2 h-2 rounded-full",
+                      alert.level === 'high' ? 'bg-red-500' : 'bg-yellow-500'
+                    )} />
+                    <div>
+                      <p className="text-sm font-bold text-foreground">{alert.title}</p>
+                      <p className="text-xs text-muted-foreground">{alert.description}</p>
+                    </div>
                   </div>
+                  <Link href={alert.href} className="text-xs font-semibold text-primary hover:underline px-2 py-1">
+                    {alert.action} →
+                  </Link>
                 </div>
-                <Link href={alert.href} className="text-xs font-semibold text-primary hover:underline px-2 py-1">
-                  {alert.action} →
-                </Link>
-              </div>
-            ))}
+              ))}
           </div>
         </div>
       )}
 
-      {/* ON TRACK */}
-      {onTrack.length > 0 && (
+      {/* 7. ON TRACK */}
+      {completeItems.length > 0 && (
         <div className="space-y-3">
           <p className="section-header text-green-400">On Track</p>
           <div className="flex flex-wrap gap-2">
-            {onTrack.map((item, i) => (
-              <span key={i} className="text-xs font-medium px-2.5 py-1.5 rounded-lg bg-green-500/10 text-green-400 border border-green-500/20">
-                ✓ {item}
+            {completeItems.map((item) => (
+              <span key={item.id} className="text-xs font-medium px-2.5 py-1.5 rounded-lg bg-green-500/10 text-green-400 border border-green-500/20">
+                ✓ {item.title}
               </span>
             ))}
           </div>
         </div>
       )}
 
-      {/* 4. TODAY'S PRIORITIES (From Plan) */}
-      {plan && (plan.top_1 || plan.top_2 || plan.top_3) && (
-        <div className="arc-card space-y-3">
-          <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Today's Priorities</p>
-          <ul className="space-y-2">
-            {plan.top_1 && <li className="text-sm font-medium flex gap-2"><span className="text-primary font-bold">1.</span> {plan.top_1}</li>}
-            {plan.top_2 && <li className="text-sm font-medium flex gap-2"><span className="text-primary font-bold">2.</span> {plan.top_2}</li>}
-            {plan.top_3 && <li className="text-sm font-medium flex gap-2"><span className="text-primary font-bold">3.</span> {plan.top_3}</li>}
-          </ul>
-        </div>
-      )}
-
-      {/* 5. TIME AUDIT & TIMELINE */}
-      <div className="grid gap-4 mt-6">
-        <div className="arc-card space-y-3">
-          <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Where did your day go?</p>
-          <div className="space-y-2">
-            {careerMinutes > 0 && (
-              <div className="flex justify-between items-center text-sm">
-                <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Career</span>
-                <span className="font-bold">{Math.floor(careerMinutes / 60)}h {careerMinutes % 60}m</span>
-              </div>
-            )}
-            {englishMinutes > 0 && (
-              <div className="flex justify-between items-center text-sm">
-                <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-indigo-500"></span> English</span>
-                <span className="font-bold">{Math.floor(englishMinutes / 60)}h {englishMinutes % 60}m</span>
-              </div>
-            )}
-            {gym && gym.status === 'completed' && (
-              <div className="flex justify-between items-center text-sm">
-                <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-orange-500"></span> Gym</span>
-                <span className="font-bold">{gym.duration_minutes ? `${gym.duration_minutes}m` : 'Completed'}</span>
-              </div>
-            )}
-            {careerMinutes === 0 && englishMinutes === 0 && (!gym || gym.status !== 'completed') && (
-              <p className="text-sm text-muted-foreground italic">No time blocks logged yet today.</p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 6. GLOBAL QUICK ACTIONS */}
+      {/* 8. QUICK ACTIONS */}
       <div className="mt-6">
         <p className="section-header">Quick Actions</p>
         <div className="grid grid-cols-2 gap-2">
@@ -341,7 +375,94 @@ export function CommandCenter({
             <span className="text-sm font-semibold">₹ Finance</span>
             <span className="text-primary">→</span>
           </Link>
+          <Link href="/dashboard/today" className="bg-secondary hover:bg-primary/10 border border-border hover:border-primary/30 p-3 rounded-xl flex items-center justify-between transition-colors">
+            <span className="text-sm font-semibold">✅ Today</span>
+            <span className="text-primary">→</span>
+          </Link>
+          <Link href="/dashboard/rapido" className="bg-secondary hover:bg-primary/10 border border-border hover:border-primary/30 p-3 rounded-xl flex items-center justify-between transition-colors">
+            <span className="text-sm font-semibold">🛵 Rapido</span>
+            <span className="text-primary">→</span>
+          </Link>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Activity Row Component ──────────────────────────────────────────────────
+
+import type { ActivityStatus } from '@/lib/daily-state'
+
+interface ActivityRowProps {
+  icon: string
+  label: string
+  status: ActivityStatus
+  description: string
+  href: string
+  actionLabel: string
+  progress?: number
+}
+
+function ActivityRow({ icon, label, status, description, href, actionLabel, progress }: ActivityRowProps) {
+  const statusColors: Record<ActivityStatus, string> = {
+    completed: 'text-green-400',
+    partial: 'text-yellow-400',
+    missed: 'text-red-400',
+    recovery: 'text-blue-400',
+    skipped: 'text-gray-400',
+    not_logged: 'text-muted-foreground',
+    not_applicable: 'text-muted-foreground',
+  }
+
+  const statusIcons: Record<ActivityStatus, string> = {
+    completed: '🟢',
+    partial: '🟡',
+    missed: '🔴',
+    recovery: '🔵',
+    skipped: '⚪',
+    not_logged: '⚪',
+    not_applicable: '—',
+  }
+
+  const bgClasses: Record<ActivityStatus, string> = {
+    completed: 'bg-green-500/5 border-green-500/20',
+    partial: 'bg-yellow-500/5 border-yellow-500/20',
+    missed: 'bg-red-500/5 border-red-500/20',
+    recovery: 'bg-blue-500/5 border-blue-500/20',
+    skipped: 'bg-secondary/30 border-border',
+    not_logged: 'bg-secondary/30 border-border',
+    not_applicable: 'bg-secondary/30 border-border',
+  }
+
+  return (
+    <div className={cn('p-4 rounded-xl border', bgClasses[status])}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <span className="text-base">{icon}</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-bold text-foreground">{label}</p>
+              <span className="text-xs">{statusIcons[status]}</span>
+            </div>
+            <p className={cn('text-xs mt-0.5', statusColors[status])}>{description}</p>
+            {progress !== undefined && progress > 0 && progress < 100 && (
+              <div className="mt-1.5 h-1 bg-secondary rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary rounded-full"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+        {status === 'not_logged' || status === 'partial' ? (
+          <Link
+            href={href}
+            className="text-xs font-semibold text-primary hover:underline shrink-0 ml-2"
+          >
+            {actionLabel} →
+          </Link>
+        ) : null}
       </div>
     </div>
   )
